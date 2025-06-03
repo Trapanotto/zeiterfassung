@@ -32,7 +32,7 @@
 
     <div class="w-full max-w-2xl bg-white dark:bg-gray-800 shadow-xl rounded-xl p-6">
         <header class="mb-6 text-center">
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100">Arbeitszeitrechner</h1>
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100">Zeiterfassung</h1>
         </header>
 
         <div id="timeEntriesContainer" class="space-y-3 mb-4">
@@ -46,18 +46,20 @@
         <div class="mb-6">
             <h3 class="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-200">Arbeitszeitübersicht</h3>
             <div class="relative w-full bg-gray-300 dark:bg-gray-600 rounded-full h-6 overflow-hidden">
-                <!-- Farbe wird dynamisch angepasst (gelb/grün) -->
-                <div id="normalWorkFill" class="h-6 text-sm font-medium text-white text-center p-1 leading-none transition-all duration-300 ease-out absolute left-0 top-0" style="width: 0%;">
+                <!-- normalWorkFill: Removed p-1, text-center, leading-none. Added flex, items-center, justify-center -->
+                <div id="normalWorkFill" class="h-6 text-sm font-medium transition-all duration-300 ease-out absolute left-0 top-0 flex items-center justify-center" style="width: 0%;">
                     <!-- Text updated by JS -->
                 </div>
-                <div id="overtimeWorkFill" class="bg-blue-500 h-6 text-sm font-medium text-white text-center p-1 leading-none transition-all duration-300 ease-out absolute left-0 top-0 hidden" style="width: 0%;">
+                <!-- overtimeWorkFill: Removed p-1, text-center, leading-none. Added flex, items-center, justify-center -->
+                <div id="overtimeWorkFill" class="bg-blue-500 h-6 text-sm font-medium text-white transition-all duration-300 ease-out absolute left-0 top-0 hidden flex items-center justify-center" style="width: 0%;">
                     <!-- Text updated by JS (now empty) -->
                 </div>
-                <div id="targetLine" class="absolute top-0 bottom-0 border-l-2 border-red-500 dark:border-red-400" style="left: 0%;">
+                <div id="targetLine" class="absolute top-0 bottom-0 border-l-2 border-red-500 dark:border-red-400 z-10">
                     <span class="absolute -top-5 text-xs text-red-500 dark:text-red-400 transform -translate-x-1/2">8.4h</span>
                 </div>
             </div>
-            <p class="mt-3 text-sm sm:text-base">Gesamte Pausenzeit: <span id="totalBreakTimeDisplayMoved" class="font-bold text-sky-600 dark:text-sky-400">0h 0min</span></p>
+            <!-- Gesamte Pausenzeit: Farbe wird dynamisch angepasst -->
+            <p class="mt-3 text-sm sm:text-base">Gesamte Pausenzeit: <span id="totalBreakTimeDisplayMoved" class="font-bold">0h 0min</span></p>
             <p id="overtimeDisplayWrapperMoved" class="mt-1 text-sm sm:text-base hidden">Überzeit: <span id="overtimeDisplayMoved" class="font-bold text-blue-500 dark:text-blue-400">0h 0min</span></p>
             <div id="warningsContainerMoved" class="mt-2 space-y-2">
                 <!-- Warnings will be injected here -->
@@ -135,7 +137,6 @@
                 if (totalMinutes < 0) totalMinutes = 0;
                 const hours = Math.floor(totalMinutes / 60);
                 const minutes = totalMinutes % 60;
-                // Geändertes Format: "min" klein geschrieben
                 return `${hours}h ${minutes}min`; 
             }
 
@@ -176,12 +177,28 @@
                 });
 
                 timeEntriesForCalc.sort((a, b) => a.start - b.start);
-                let totalBreakMinutes = 0;
-                for (let i = 0; i < timeEntriesForCalc.length - 1; i++) {
-                    const breakDuration = timeEntriesForCalc[i+1].start - timeEntriesForCalc[i].end;
-                    if (breakDuration > 0) {
-                        totalBreakMinutes += breakDuration;
+                
+                let overlapDetected = false;
+                if (timeEntriesForCalc.length > 1) {
+                    for (let i = 0; i < timeEntriesForCalc.length - 1; i++) {
+                        if (timeEntriesForCalc[i].end > timeEntriesForCalc[i+1].start) {
+                            overlapDetected = true;
+                            break; 
+                        }
                     }
+                }
+
+                let totalBreakMinutes = 0;
+                let maxContinuousBreak = 0;
+
+                for (let i = 0; i < timeEntriesForCalc.length - 1; i++) {
+                        if (timeEntriesForCalc[i+1].start > timeEntriesForCalc[i].end) {
+                            const breakDuration = timeEntriesForCalc[i+1].start - timeEntriesForCalc[i].end;
+                            totalBreakMinutes += breakDuration;
+                            if (breakDuration > maxContinuousBreak) {
+                                maxContinuousBreak = breakDuration;
+                            }
+                        }
                 }
                 totalBreakTimeDisplayMoved.textContent = formatDuration(totalBreakMinutes); 
 
@@ -195,60 +212,90 @@
                 overtimeWorkFill.style.width = `${overtimePercent}%`;
                 overtimeWorkFill.style.left = `${normalPercent}%`; 
 
-                normalWorkFill.classList.remove('bg-green-500', 'bg-yellow-500', 'dark:bg-yellow-400', 'text-gray-800');
+                targetLine.style.left = `${(TARGET_WORK_MINUTES / MAX_PROGRESS_BAR_MINUTES) * 100}%`;
+
+                normalWorkFill.classList.remove('bg-green-500', 'bg-yellow-500', 'text-white', 'text-gray-800', 'rounded-l-full', 'rounded-r-full');
+                overtimeWorkFill.classList.remove('rounded-l-full', 'rounded-r-full');
                 normalWorkFill.classList.add('text-white'); 
 
                 if (totalWorkedMinutes > 0) {
-                    if (totalWorkedMinutes < TARGET_WORK_MINUTES) {
-                        normalWorkFill.classList.add('bg-yellow-500');
-                        normalWorkFill.classList.remove('text-white'); 
-                        normalWorkFill.classList.add('text-gray-800'); 
-                    } else {
-                        normalWorkFill.classList.add('bg-green-500');
-                    }
                     normalWorkFill.textContent = formatDuration(totalWorkedMinutes);
-                } else {
+                    normalWorkFill.classList.add('rounded-l-full'); 
+
+                    if (overtimeMinutes > 0) { 
+                        normalWorkFill.classList.add('bg-green-500');
+                        overtimeWorkFill.classList.remove('hidden');
+                        overtimeDisplayWrapperMoved.classList.remove('hidden');
+                        overtimeDisplayMoved.textContent = formatDuration(overtimeMinutes);
+                    } else { 
+                        overtimeWorkFill.classList.add('hidden');
+                        overtimeDisplayWrapperMoved.classList.add('hidden');
+                        if (totalWorkedMinutes < TARGET_WORK_MINUTES) { 
+                            normalWorkFill.classList.add('bg-yellow-500', 'text-gray-800');
+                            normalWorkFill.classList.remove('text-white');
+                        } else { 
+                            normalWorkFill.classList.add('bg-green-500');
+                        }
+                    }
+                } else { 
                     normalWorkFill.textContent = '';
-                     normalWorkFill.classList.add('bg-green-500'); 
+                    normalWorkFill.classList.add('bg-green-500'); 
+                    normalWorkFill.classList.remove('rounded-l-full');
+                    overtimeWorkFill.classList.add('hidden');
+                    overtimeDisplayWrapperMoved.classList.add('hidden');
                 }
                 overtimeWorkFill.textContent = ''; 
 
-                normalWorkFill.classList.remove('rounded-full', 'rounded-l-full');
-                overtimeWorkFill.classList.remove('hidden'); 
-
-                if (overtimeMinutes > 0) {
-                    normalWorkFill.classList.add('rounded-l-full'); 
-                    overtimeDisplayWrapperMoved.classList.remove('hidden'); 
-                    overtimeDisplayMoved.textContent = formatDuration(overtimeMinutes); 
-                } else { 
-                    if (totalWorkedMinutes > 0) {
-                        normalWorkFill.classList.add('rounded-full'); 
-                    }
-                    overtimeWorkFill.classList.add('hidden'); 
-                    overtimeDisplayWrapperMoved.classList.add('hidden'); 
-                }
-
-                targetLine.style.left = `${(TARGET_WORK_MINUTES / MAX_PROGRESS_BAR_MINUTES) * 100}%`;
 
                 warningsContainerMoved.innerHTML = ''; 
                 let warningsFound = false;
+                let breakWarningActive = false;
 
-                if (totalWorkedMinutes > 0 && totalBreakMinutes < 30) {
+
+                if (overlapDetected) {
                     const warningEl = document.createElement('p');
-                    warningEl.classList.add('text-red-500', 'dark:text-red-400', 'text-sm', 'p-2', 'bg-red-100', 'dark:bg-red-800', 'rounded-md', 'border', 'border-red-300', 'dark:border-red-600');
-                    warningEl.textContent = '⚠️ Mindestpause (30min) nicht erreicht.'; // "min" klein
-                    warningsContainerMoved.appendChild(warningEl);
-                    warningsFound = true;
-                }
-                if (totalWorkedMinutes >= (9 * 60) && totalBreakMinutes < 60) {
-                    const warningEl = document.createElement('p');
-                    warningEl.classList.add('text-red-500', 'dark:text-red-400', 'text-sm', 'p-2', 'bg-red-100', 'dark:bg-red-800', 'rounded-md', 'border', 'border-red-300', 'dark:border-red-600');
-                    warningEl.textContent = '⚠️ Mindestpause (60min) nicht erreicht bei ≥9 Std. Arbeit.'; // "min" klein
+                    warningEl.classList.add('text-orange-600', 'dark:text-orange-400', 'text-sm', 'p-2', 'bg-orange-100', 'dark:bg-orange-800', 'rounded-md', 'border', 'border-orange-300', 'dark:border-orange-600');
+                    warningEl.textContent = '⚠️ Achtung: Erfasste Zeiträume überschneiden sich!';
                     warningsContainerMoved.appendChild(warningEl);
                     warningsFound = true;
                 }
 
-                if (totalWorkedMinutes === 0 && !warningsFound) { 
+                if (totalWorkedMinutes > 0 && totalBreakMinutes < 30 ) {
+                    const warningEl = document.createElement('p');
+                    warningEl.classList.add('text-red-500', 'dark:text-red-400', 'text-sm', 'p-2', 'bg-red-100', 'dark:bg-red-800', 'rounded-md', 'border', 'border-red-300', 'dark:border-red-600');
+                    warningEl.textContent = '⚠️ Mindestpause (total 30min) nicht erreicht.';
+                    warningsContainerMoved.appendChild(warningEl);
+                    warningsFound = true;
+                    breakWarningActive = true;
+                }
+                if (totalWorkedMinutes > 0 && maxContinuousBreak < 30) {
+                    const warningEl = document.createElement('p');
+                    warningEl.classList.add('text-red-500', 'dark:text-red-400', 'text-sm', 'p-2', 'bg-red-100', 'dark:bg-red-800', 'rounded-md', 'border', 'border-red-300', 'dark:border-red-600');
+                    warningEl.textContent = '⚠️ Mindestens eine ununterbrochene Pause von 30min ist erforderlich.';
+                    warningsContainerMoved.appendChild(warningEl);
+                    warningsFound = true;
+                    breakWarningActive = true;
+                }
+
+                if (totalWorkedMinutes >= (9 * 60) && totalBreakMinutes < 60) { 
+                    const warningEl = document.createElement('p');
+                    warningEl.classList.add('text-red-500', 'dark:text-red-400', 'text-sm', 'p-2', 'bg-red-100', 'dark:bg-red-800', 'rounded-md', 'border', 'border-red-300', 'dark:border-red-600');
+                    warningEl.textContent = '⚠️ Mindestpause (total 60min) nicht erreicht bei ≥9h Arbeit.';
+                    warningsContainerMoved.appendChild(warningEl);
+                    warningsFound = true;
+                    breakWarningActive = true;
+                }
+
+                // Dynamische Farbe für Gesamte Pausenzeit
+                totalBreakTimeDisplayMoved.classList.remove('text-red-500', 'dark:text-red-400', 'text-blue-500', 'dark:text-blue-400');
+                if (breakWarningActive) {
+                    totalBreakTimeDisplayMoved.classList.add('text-red-500', 'dark:text-red-400');
+                } else {
+                    totalBreakTimeDisplayMoved.classList.add('text-blue-500', 'dark:text-blue-400');
+                }
+
+
+                if (!warningsFound && totalWorkedMinutes === 0) { 
                     warningsContainerMoved.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400 p-2">Noch keine Zeiten erfasst.</p>';
                 }
 
@@ -269,7 +316,7 @@
                         if (Array.isArray(parsedEntries)) {
                             parsedEntries.forEach(entry => {
                                 if (typeof entry.start !== 'undefined' && typeof entry.end !== 'undefined') {
-                                   createTimeEntryRow(entry.start, entry.end)
+                                    createTimeEntryRow(entry.start, entry.end)
                                 }
                             });
                             loadedFromStorage = true;
