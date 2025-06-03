@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zeiterfassung</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .time-input::-webkit-calendar-picker-indicator {
+            filter: invert(0.5) sepia(1) saturate(5) hue-rotate(175deg);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen p-4 sm:p-6 flex flex-col items-center">
+
+    <div class="w-full max-w-2xl bg-white dark:bg-gray-800 shadow-xl rounded-xl p-6">
+        <header class="mb-6 text-center">
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100">Arbeitszeitrechner</h1>
+        </header>
+
+        <div id="timeEntriesContainer" class="space-y-3 mb-4">
+            <!-- Time entry rows will be injected here -->
+        </div>
+
+        <button id="addTimeEntryRow" class="w-full mb-6 bg-sky-500 hover:bg-sky-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-opacity-75">
+            + Zeitspanne hinzufügen
+        </button>
+        
+        <div class="mb-6">
+            <h3 class="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-200">Arbeitszeitübersicht</h3>
+            <div class="relative w-full bg-gray-300 dark:bg-gray-600 rounded-full h-6 overflow-hidden">
+                <!-- Farbe wird dynamisch angepasst (gelb/grün) -->
+                <div id="normalWorkFill" class="h-6 text-sm font-medium text-white text-center p-1 leading-none transition-all duration-300 ease-out absolute left-0 top-0" style="width: 0%;">
+                    <!-- Text updated by JS -->
+                </div>
+                <div id="overtimeWorkFill" class="bg-blue-500 h-6 text-sm font-medium text-white text-center p-1 leading-none transition-all duration-300 ease-out absolute left-0 top-0 hidden" style="width: 0%;">
+                    <!-- Text updated by JS (now empty) -->
+                </div>
+                <div id="targetLine" class="absolute top-0 bottom-0 border-l-2 border-red-500 dark:border-red-400" style="left: 0%;">
+                    <span class="absolute -top-5 text-xs text-red-500 dark:text-red-400 transform -translate-x-1/2">8.4h</span>
+                </div>
+            </div>
+            <p class="mt-3 text-sm sm:text-base">Gesamte Pausenzeit: <span id="totalBreakTimeDisplayMoved" class="font-bold text-sky-600 dark:text-sky-400">0h 0min</span></p>
+            <p id="overtimeDisplayWrapperMoved" class="mt-1 text-sm sm:text-base hidden">Überzeit: <span id="overtimeDisplayMoved" class="font-bold text-blue-500 dark:text-blue-400">0h 0min</span></p>
+            <div id="warningsContainerMoved" class="mt-2 space-y-2">
+                <!-- Warnings will be injected here -->
+            </div>
+        </div>
+        
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const timeEntriesContainer = document.getElementById('timeEntriesContainer');
+            const addTimeEntryRowButton = document.getElementById('addTimeEntryRow');
+            const totalBreakTimeDisplayMoved = document.getElementById('totalBreakTimeDisplayMoved'); 
+            const overtimeDisplayWrapperMoved = document.getElementById('overtimeDisplayWrapperMoved');
+            const overtimeDisplayMoved = document.getElementById('overtimeDisplayMoved'); 
+            
+            const normalWorkFill = document.getElementById('normalWorkFill');
+            const overtimeWorkFill = document.getElementById('overtimeWorkFill');
+            const targetLine = document.getElementById('targetLine');
+            const warningsContainerMoved = document.getElementById('warningsContainerMoved'); 
+            
+            const TARGET_WORK_MINUTES = 8.4 * 60; 
+            const MAX_PROGRESS_BAR_MINUTES = 12 * 60; 
+            const LOCAL_STORAGE_KEY = 'timeTrackerEntries';
+
+            const defaultInitialEntries = [ 
+                { start: "08:00", end: "09:00" },
+                { start: "09:15", end: "12:00" },
+                { start: "12:45", end: "17:30" }
+            ];
+
+            function createTimeEntryRow(startVal = '', endVal = '') {
+                const rowId = `time-entry-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const row = document.createElement('div');
+                row.classList.add('time-entry-row', 'flex', 'items-center', 'space-x-2', 'p-2', 'bg-gray-50', 'dark:bg-gray-700', 'rounded-md');
+                row.setAttribute('id', rowId);
+
+                row.innerHTML = `
+                    <div class="flex-grow flex items-center space-x-2">
+                        <input type="time" class="start-time time-input bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 text-gray-900 dark:text-gray-100 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block w-full p-2">
+                        <span class="text-gray-500 dark:text-gray-400">-</span>
+                        <input type="time" class="end-time time-input bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 text-gray-900 dark:text-gray-100 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block w-full p-2">
+                    </div>
+                    <div class="flex items-center space-x-2 w-auto min-w-[120px]">
+                        <span class="text-gray-500 dark:text-gray-400">=</span>
+                        <span class="duration-display text-sm font-medium text-gray-700 dark:text-gray-300 flex-grow text-right">0h 0min</span>
+                        <button class="remove-row-btn text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-bold text-xl p-1 rounded-md hover:bg-red-100 dark:hover:bg-red-700 transition-colors" title="Zeile entfernen">&times;</button>
+                    </div>
+                `;
+                
+                row.querySelector('.start-time').value = startVal;
+                row.querySelector('.end-time').value = endVal;
+
+                timeEntriesContainer.appendChild(row);
+                
+                row.querySelectorAll('input[type="time"]').forEach(input => {
+                    input.addEventListener('input', updateCalculations);
+                });
+                row.querySelector('.remove-row-btn').addEventListener('click', () => {
+                    row.remove();
+                    updateCalculations();
+                });
+            }
+
+            function parseTime(timeStr) {
+                if (!timeStr) return null;
+                const [hours, minutes] = timeStr.split(':').map(Number);
+                if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+                    return null;
+                }
+                return hours * 60 + minutes;
+            }
+
+            function formatDuration(totalMinutes) {
+                if (totalMinutes < 0) totalMinutes = 0;
+                const hours = Math.floor(totalMinutes / 60);
+                const minutes = totalMinutes % 60;
+                // Geändertes Format: "min" klein geschrieben
+                return `${hours}h ${minutes}min`; 
+            }
+
+            function updateCalculations() {
+                let totalWorkedMinutes = 0;
+                const timeEntriesForCalc = []; 
+                const currentEntriesToSave = []; 
+
+                document.querySelectorAll('.time-entry-row').forEach(row => {
+                    const startInput = row.querySelector('.start-time');
+                    const endInput = row.querySelector('.end-time');
+                    const durationDisplay = row.querySelector('.duration-display');
+                    
+                    const startVal = startInput.value;
+                    const endVal = endInput.value;
+
+                    currentEntriesToSave.push({ start: startVal, end: endVal });
+                    
+                    const startMinutes = parseTime(startVal);
+                    const endMinutes = parseTime(endVal);
+                    
+                    let entryDuration = 0;
+                    if (startMinutes !== null && endMinutes !== null && endMinutes > startMinutes) {
+                        entryDuration = endMinutes - startMinutes;
+                        timeEntriesForCalc.push({ start: startMinutes, end: endMinutes });
+                    }
+                    
+                    durationDisplay.textContent = formatDuration(entryDuration);
+                    totalWorkedMinutes += entryDuration;
+
+                    if (startVal && endVal && (startMinutes === null || endMinutes === null || endMinutes <= startMinutes)) {
+                        startInput.classList.add('border-red-500', 'dark:border-red-400');
+                        endInput.classList.add('border-red-500', 'dark:border-red-400');
+                    } else {
+                        startInput.classList.remove('border-red-500', 'dark:border-red-400');
+                        endInput.classList.remove('border-red-500', 'dark:border-red-400');
+                    }
+                });
+
+                timeEntriesForCalc.sort((a, b) => a.start - b.start);
+                let totalBreakMinutes = 0;
+                for (let i = 0; i < timeEntriesForCalc.length - 1; i++) {
+                    const breakDuration = timeEntriesForCalc[i+1].start - timeEntriesForCalc[i].end;
+                    if (breakDuration > 0) {
+                        totalBreakMinutes += breakDuration;
+                    }
+                }
+                totalBreakTimeDisplayMoved.textContent = formatDuration(totalBreakMinutes); 
+
+                const normalMinutes = Math.min(totalWorkedMinutes, TARGET_WORK_MINUTES);
+                const overtimeMinutes = Math.max(0, totalWorkedMinutes - TARGET_WORK_MINUTES);
+
+                const normalPercent = (normalMinutes / MAX_PROGRESS_BAR_MINUTES) * 100;
+                const overtimePercent = (overtimeMinutes / MAX_PROGRESS_BAR_MINUTES) * 100;
+
+                normalWorkFill.style.width = `${normalPercent}%`;
+                overtimeWorkFill.style.width = `${overtimePercent}%`;
+                overtimeWorkFill.style.left = `${normalPercent}%`; 
+
+                normalWorkFill.classList.remove('bg-green-500', 'bg-yellow-500', 'dark:bg-yellow-400', 'text-gray-800');
+                normalWorkFill.classList.add('text-white'); 
+
+                if (totalWorkedMinutes > 0) {
+                    if (totalWorkedMinutes < TARGET_WORK_MINUTES) {
+                        normalWorkFill.classList.add('bg-yellow-500');
+                        normalWorkFill.classList.remove('text-white'); 
+                        normalWorkFill.classList.add('text-gray-800'); 
+                    } else {
+                        normalWorkFill.classList.add('bg-green-500');
+                    }
+                    normalWorkFill.textContent = formatDuration(totalWorkedMinutes);
+                } else {
+                    normalWorkFill.textContent = '';
+                     normalWorkFill.classList.add('bg-green-500'); 
+                }
+                overtimeWorkFill.textContent = ''; 
+
+                normalWorkFill.classList.remove('rounded-full', 'rounded-l-full');
+                overtimeWorkFill.classList.remove('hidden'); 
+
+                if (overtimeMinutes > 0) {
+                    normalWorkFill.classList.add('rounded-l-full'); 
+                    overtimeDisplayWrapperMoved.classList.remove('hidden'); 
+                    overtimeDisplayMoved.textContent = formatDuration(overtimeMinutes); 
+                } else { 
+                    if (totalWorkedMinutes > 0) {
+                        normalWorkFill.classList.add('rounded-full'); 
+                    }
+                    overtimeWorkFill.classList.add('hidden'); 
+                    overtimeDisplayWrapperMoved.classList.add('hidden'); 
+                }
+
+                targetLine.style.left = `${(TARGET_WORK_MINUTES / MAX_PROGRESS_BAR_MINUTES) * 100}%`;
+
+                warningsContainerMoved.innerHTML = ''; 
+                let warningsFound = false;
+
+                if (totalWorkedMinutes > 0 && totalBreakMinutes < 30) {
+                    const warningEl = document.createElement('p');
+                    warningEl.classList.add('text-red-500', 'dark:text-red-400', 'text-sm', 'p-2', 'bg-red-100', 'dark:bg-red-800', 'rounded-md', 'border', 'border-red-300', 'dark:border-red-600');
+                    warningEl.textContent = '⚠️ Mindestpause (30min) nicht erreicht.'; // "min" klein
+                    warningsContainerMoved.appendChild(warningEl);
+                    warningsFound = true;
+                }
+                if (totalWorkedMinutes >= (9 * 60) && totalBreakMinutes < 60) {
+                    const warningEl = document.createElement('p');
+                    warningEl.classList.add('text-red-500', 'dark:text-red-400', 'text-sm', 'p-2', 'bg-red-100', 'dark:bg-red-800', 'rounded-md', 'border', 'border-red-300', 'dark:border-red-600');
+                    warningEl.textContent = '⚠️ Mindestpause (60min) nicht erreicht bei ≥9 Std. Arbeit.'; // "min" klein
+                    warningsContainerMoved.appendChild(warningEl);
+                    warningsFound = true;
+                }
+
+                if (totalWorkedMinutes === 0 && !warningsFound) { 
+                    warningsContainerMoved.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400 p-2">Noch keine Zeiten erfasst.</p>';
+                }
+
+                try {
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(currentEntriesToSave));
+                } catch (e) {
+                    console.error("Error saving to localStorage:", e);
+                }
+            }
+            
+            function loadEntries() {
+                const savedEntriesJSON = localStorage.getItem(LOCAL_STORAGE_KEY);
+                let loadedFromStorage = false;
+
+                if (savedEntriesJSON) {
+                    try {
+                        const parsedEntries = JSON.parse(savedEntriesJSON);
+                        if (Array.isArray(parsedEntries)) {
+                            parsedEntries.forEach(entry => {
+                                if (typeof entry.start !== 'undefined' && typeof entry.end !== 'undefined') {
+                                   createTimeEntryRow(entry.start, entry.end)
+                                }
+                            });
+                            loadedFromStorage = true;
+                        }
+                    } catch (e) {
+                        console.error("Error parsing saved entries from localStorage:", e);
+                    }
+                }
+
+                if (!loadedFromStorage) {
+                    defaultInitialEntries.forEach(entry => createTimeEntryRow(entry.start, entry.end));
+                }
+            }
+
+            addTimeEntryRowButton.addEventListener('click', () => {
+                createTimeEntryRow();
+                updateCalculations(); 
+            });
+            
+            loadEntries(); 
+            updateCalculations(); 
+        });
+    </script>
+</body>
+</html>
