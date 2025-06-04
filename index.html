@@ -29,7 +29,6 @@
     </style>
 </head>
 <body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen p-4 sm:p-6 flex flex-col items-center">
-
     <div class="w-full max-w-2xl bg-white dark:bg-gray-800 shadow-xl rounded-xl p-6">
         <header class="mb-6 text-center">
             <h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100">Zeiterfassung</h1>
@@ -42,15 +41,13 @@
         <button id="addTimeEntryRow" class="w-full mb-6 bg-sky-500 hover:bg-sky-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-opacity-75">
             + Zeitspanne hinzufügen
         </button>
-        
+
         <div class="mb-6">
             <h3 class="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-200">Arbeitszeitübersicht</h3>
             <div class="relative w-full bg-gray-300 dark:bg-gray-600 rounded-full h-6 overflow-hidden">
-                <!-- normalWorkFill: Removed p-1, text-center, leading-none. Added flex, items-center, justify-center -->
                 <div id="normalWorkFill" class="h-6 text-sm font-medium transition-all duration-300 ease-out absolute left-0 top-0 flex items-center justify-center" style="width: 0%;">
                     <!-- Text updated by JS -->
                 </div>
-                <!-- overtimeWorkFill: Removed p-1, text-center, leading-none. Added flex, items-center, justify-center -->
                 <div id="overtimeWorkFill" class="bg-blue-500 h-6 text-sm font-medium text-white transition-all duration-300 ease-out absolute left-0 top-0 hidden flex items-center justify-center" style="width: 0%;">
                     <!-- Text updated by JS (now empty) -->
                 </div>
@@ -58,36 +55,35 @@
                     <span class="absolute -top-5 text-xs text-red-500 dark:text-red-400 transform -translate-x-1/2">8.4h</span>
                 </div>
             </div>
-            <!-- Gesamte Pausenzeit: Farbe wird dynamisch angepasst -->
-            <p class="mt-3 text-sm sm:text-base">Gesamte Pausenzeit: <span id="totalBreakTimeDisplayMoved" class="font-bold">0h 0min</span></p>
+            <!-- Stamped Break Display Added -->
+            <p class="mt-3 text-sm sm:text-base">Gestempelte Pause (max 15 Min.): <span id="stampedBreakDisplay" class="font-bold text-gray-600 dark:text-gray-400">Nicht in Anspruch genommen</span></p>
+            <p class="mt-1 text-sm sm:text-base">Gesamte Pausenzeit: <span id="totalBreakTimeDisplayMoved" class="font-bold">0h 0min</span></p>
             <p id="overtimeDisplayWrapperMoved" class="mt-1 text-sm sm:text-base hidden">Überzeit: <span id="overtimeDisplayMoved" class="font-bold text-blue-500 dark:text-blue-400">0h 0min</span></p>
             <div id="warningsContainerMoved" class="mt-2 space-y-2">
                 <!-- Warnings will be injected here -->
             </div>
         </div>
-        
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const timeEntriesContainer = document.getElementById('timeEntriesContainer');
             const addTimeEntryRowButton = document.getElementById('addTimeEntryRow');
-            const totalBreakTimeDisplayMoved = document.getElementById('totalBreakTimeDisplayMoved'); 
+            const totalBreakTimeDisplayMoved = document.getElementById('totalBreakTimeDisplayMoved');
             const overtimeDisplayWrapperMoved = document.getElementById('overtimeDisplayWrapperMoved');
-            const overtimeDisplayMoved = document.getElementById('overtimeDisplayMoved'); 
-            
+            const overtimeDisplayMoved = document.getElementById('overtimeDisplayMoved');
             const normalWorkFill = document.getElementById('normalWorkFill');
             const overtimeWorkFill = document.getElementById('overtimeWorkFill');
             const targetLine = document.getElementById('targetLine');
-            const warningsContainerMoved = document.getElementById('warningsContainerMoved'); 
-            
-            const TARGET_WORK_MINUTES = 8.4 * 60; 
-            const MAX_PROGRESS_BAR_MINUTES = 12 * 60; 
-            const LOCAL_STORAGE_KEY = 'timeTrackerEntries';
+            const warningsContainerMoved = document.getElementById('warningsContainerMoved');
+            const stampedBreakDisplay = document.getElementById('stampedBreakDisplay'); // New element
 
-            const defaultInitialEntries = [ 
+            const TARGET_WORK_MINUTES = 8.4 * 60;
+            const MAX_PROGRESS_BAR_MINUTES = 12 * 60; // Max value for progress bar visualization
+            const LOCAL_STORAGE_KEY = 'timeTrackerEntries_v3_stamped_capped'; // Changed key for new logic
+            const defaultInitialEntries = [
                 { start: "08:00", end: "09:00" },
-                { start: "09:15", end: "12:00" },
+                { start: "09:20", end: "12:00" }, // This 20 min break will contribute 15min to stamped break
                 { start: "12:45", end: "17:30" }
             ];
 
@@ -109,12 +105,11 @@
                         <button class="remove-row-btn text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-bold text-xl p-1 rounded-md hover:bg-red-100 dark:hover:bg-red-700 transition-colors" title="Zeile entfernen">&times;</button>
                     </div>
                 `;
-                
                 row.querySelector('.start-time').value = startVal;
                 row.querySelector('.end-time').value = endVal;
 
                 timeEntriesContainer.appendChild(row);
-                
+
                 row.querySelectorAll('input[type="time"]').forEach(input => {
                     input.addEventListener('input', updateCalculations);
                 });
@@ -137,35 +132,34 @@
                 if (totalMinutes < 0) totalMinutes = 0;
                 const hours = Math.floor(totalMinutes / 60);
                 const minutes = totalMinutes % 60;
-                return `${hours}h ${minutes}min`; 
+                return `${hours}h ${minutes}min`;
             }
 
             function updateCalculations() {
-                let totalWorkedMinutes = 0;
-                const timeEntriesForCalc = []; 
-                const currentEntriesToSave = []; 
+                let totalWorkedMinutesActual = 0; 
+                const timeEntriesForCalc = [];
+                const currentEntriesToSave = [];
 
                 document.querySelectorAll('.time-entry-row').forEach(row => {
                     const startInput = row.querySelector('.start-time');
                     const endInput = row.querySelector('.end-time');
                     const durationDisplay = row.querySelector('.duration-display');
-                    
                     const startVal = startInput.value;
                     const endVal = endInput.value;
 
                     currentEntriesToSave.push({ start: startVal, end: endVal });
-                    
+
                     const startMinutes = parseTime(startVal);
                     const endMinutes = parseTime(endVal);
-                    
+
                     let entryDuration = 0;
                     if (startMinutes !== null && endMinutes !== null && endMinutes > startMinutes) {
                         entryDuration = endMinutes - startMinutes;
-                        timeEntriesForCalc.push({ start: startMinutes, end: endMinutes });
+                        timeEntriesForCalc.push({ start: startMinutes, end: endMinutes, id: row.id }); 
                     }
-                    
+
                     durationDisplay.textContent = formatDuration(entryDuration);
-                    totalWorkedMinutes += entryDuration;
+                    totalWorkedMinutesActual += entryDuration; 
 
                     if (startVal && endVal && (startMinutes === null || endMinutes === null || endMinutes <= startMinutes)) {
                         startInput.classList.add('border-red-500', 'dark:border-red-400');
@@ -177,125 +171,157 @@
                 });
 
                 timeEntriesForCalc.sort((a, b) => a.start - b.start);
-                
-                let overlapDetected = false;
-                if (timeEntriesForCalc.length > 1) {
-                    for (let i = 0; i < timeEntriesForCalc.length - 1; i++) {
-                        if (timeEntriesForCalc[i].end > timeEntriesForCalc[i+1].start) {
-                            overlapDetected = true;
-                            break; 
+
+                let totalBreakMinutesRaw = 0;
+                let maxContinuousBreakRaw = 0;
+                const individualBreaks = []; 
+
+                for (let i = 0; i < timeEntriesForCalc.length - 1; i++) {
+                    if (timeEntriesForCalc[i+1].start > timeEntriesForCalc[i].end) {
+                        const breakDuration = timeEntriesForCalc[i+1].start - timeEntriesForCalc[i].end;
+                        individualBreaks.push(breakDuration);
+                        totalBreakMinutesRaw += breakDuration;
+                        if (breakDuration > maxContinuousBreakRaw) {
+                            maxContinuousBreakRaw = breakDuration;
                         }
                     }
                 }
 
-                let totalBreakMinutes = 0;
-                let maxContinuousBreak = 0;
-
-                for (let i = 0; i < timeEntriesForCalc.length - 1; i++) {
-                        if (timeEntriesForCalc[i+1].start > timeEntriesForCalc[i].end) {
-                            const breakDuration = timeEntriesForCalc[i+1].start - timeEntriesForCalc[i].end;
-                            totalBreakMinutes += breakDuration;
-                            if (breakDuration > maxContinuousBreak) {
-                                maxContinuousBreak = breakDuration;
-                            }
-                        }
+                // --- Stamped Break Logic (MODIFIED) ---
+                let recognizedStampedBreakMinutes = 0;
+                for (const bDuration of individualBreaks) { // Iterate through breaks in chronological order
+                    if (bDuration > 0) { // If it's an actual break
+                        recognizedStampedBreakMinutes = Math.min(bDuration, 15); // Credit up to 15 minutes from this break
+                        break; // Apply to the first break encountered and then stop
+                    }
                 }
-                totalBreakTimeDisplayMoved.textContent = formatDuration(totalBreakMinutes); 
+                // --- End Stamped Break Logic ---
 
-                const normalMinutes = Math.min(totalWorkedMinutes, TARGET_WORK_MINUTES);
-                const overtimeMinutes = Math.max(0, totalWorkedMinutes - TARGET_WORK_MINUTES);
+                const effectiveWorkedMinutes = totalWorkedMinutesActual + recognizedStampedBreakMinutes;
+
+                if (recognizedStampedBreakMinutes > 0) {
+                    stampedBreakDisplay.textContent = `${formatDuration(recognizedStampedBreakMinutes)} (als Arbeitszeit angerechnet)`;
+                    stampedBreakDisplay.className = 'font-bold text-green-600 dark:text-green-400';
+                } else {
+                    stampedBreakDisplay.textContent = "Nicht in Anspruch genommen";
+                    stampedBreakDisplay.className = 'font-bold text-gray-600 dark:text-gray-400';
+                }
+                
+                totalBreakTimeDisplayMoved.textContent = formatDuration(totalBreakMinutesRaw);
+
+                const normalMinutes = Math.min(effectiveWorkedMinutes, TARGET_WORK_MINUTES);
+                const overtimeMinutes = Math.max(0, effectiveWorkedMinutes - TARGET_WORK_MINUTES);
 
                 const normalPercent = (normalMinutes / MAX_PROGRESS_BAR_MINUTES) * 100;
                 const overtimePercent = (overtimeMinutes / MAX_PROGRESS_BAR_MINUTES) * 100;
 
                 normalWorkFill.style.width = `${normalPercent}%`;
                 overtimeWorkFill.style.width = `${overtimePercent}%`;
-                overtimeWorkFill.style.left = `${normalPercent}%`; 
-
+                overtimeWorkFill.style.left = `${normalPercent}%`;
                 targetLine.style.left = `${(TARGET_WORK_MINUTES / MAX_PROGRESS_BAR_MINUTES) * 100}%`;
 
                 normalWorkFill.classList.remove('bg-green-500', 'bg-yellow-500', 'text-white', 'text-gray-800', 'rounded-l-full', 'rounded-r-full');
-                overtimeWorkFill.classList.remove('rounded-l-full', 'rounded-r-full');
+                overtimeWorkFill.classList.remove('rounded-l-full', 'rounded-r-full'); 
                 normalWorkFill.classList.add('text-white'); 
 
-                if (totalWorkedMinutes > 0) {
-                    normalWorkFill.textContent = formatDuration(totalWorkedMinutes);
-                    normalWorkFill.classList.add('rounded-l-full'); 
+                if (effectiveWorkedMinutes > 0) {
+                    normalWorkFill.textContent = formatDuration(effectiveWorkedMinutes); 
+                    normalWorkFill.classList.add('rounded-l-full');
 
-                    if (overtimeMinutes > 0) { 
+                    if (overtimeMinutes > 0) {
                         normalWorkFill.classList.add('bg-green-500');
                         overtimeWorkFill.classList.remove('hidden');
+                        if (normalPercent + overtimePercent >= 100) { 
+                           overtimeWorkFill.classList.add('rounded-r-full');
+                        }
                         overtimeDisplayWrapperMoved.classList.remove('hidden');
                         overtimeDisplayMoved.textContent = formatDuration(overtimeMinutes);
-                    } else { 
+                    } else {
                         overtimeWorkFill.classList.add('hidden');
                         overtimeDisplayWrapperMoved.classList.add('hidden');
-                        if (totalWorkedMinutes < TARGET_WORK_MINUTES) { 
+                        if (effectiveWorkedMinutes < TARGET_WORK_MINUTES) {
                             normalWorkFill.classList.add('bg-yellow-500', 'text-gray-800');
                             normalWorkFill.classList.remove('text-white');
                         } else { 
                             normalWorkFill.classList.add('bg-green-500');
                         }
+                        if (normalPercent >= 100) {
+                           normalWorkFill.classList.add('rounded-r-full');
+                        }
                     }
                 } else { 
                     normalWorkFill.textContent = '';
                     normalWorkFill.classList.add('bg-green-500'); 
-                    normalWorkFill.classList.remove('rounded-l-full');
+                    normalWorkFill.classList.remove('rounded-l-full', 'rounded-r-full');
                     overtimeWorkFill.classList.add('hidden');
                     overtimeDisplayWrapperMoved.classList.add('hidden');
                 }
                 overtimeWorkFill.textContent = ''; 
 
-
-                warningsContainerMoved.innerHTML = ''; 
+                warningsContainerMoved.innerHTML = '';
                 let warningsFound = false;
-                let breakWarningActive = false;
+                let breakWarningActive = false; 
 
-
+                let overlapDetected = false;
+                if (timeEntriesForCalc.length > 1) {
+                    for (let i = 0; i < timeEntriesForCalc.length - 1; i++) {
+                        if (timeEntriesForCalc[i].end > timeEntriesForCalc[i+1].start) {
+                            overlapDetected = true;
+                            break;
+                        }
+                    }
+                }
                 if (overlapDetected) {
                     const warningEl = document.createElement('p');
-                    warningEl.classList.add('text-orange-600', 'dark:text-orange-400', 'text-sm', 'p-2', 'bg-orange-100', 'dark:bg-orange-800', 'rounded-md', 'border', 'border-orange-300', 'dark:border-orange-600');
+                    warningEl.className = 'text-orange-600 dark:text-orange-400 text-sm p-2 bg-orange-100 dark:bg-orange-800 rounded-md border border-orange-300 dark:border-orange-600';
                     warningEl.textContent = '⚠️ Achtung: Erfasste Zeiträume überschneiden sich!';
                     warningsContainerMoved.appendChild(warningEl);
                     warningsFound = true;
                 }
 
-                if (totalWorkedMinutes > 0 && totalBreakMinutes < 30 ) {
+                if (totalWorkedMinutesActual > 0 && totalBreakMinutesRaw < 30 ) {
                     const warningEl = document.createElement('p');
-                    warningEl.classList.add('text-red-500', 'dark:text-red-400', 'text-sm', 'p-2', 'bg-red-100', 'dark:bg-red-800', 'rounded-md', 'border', 'border-red-300', 'dark:border-red-600');
+                    warningEl.className = 'text-red-500 dark:text-red-400 text-sm p-2 bg-red-100 dark:bg-red-800 rounded-md border border-red-300 dark:border-red-600';
                     warningEl.textContent = '⚠️ Mindestpause (total 30min) nicht erreicht.';
                     warningsContainerMoved.appendChild(warningEl);
                     warningsFound = true;
                     breakWarningActive = true;
                 }
-                if (totalWorkedMinutes > 0 && maxContinuousBreak < 30) {
+                if (totalWorkedMinutesActual > 0 && maxContinuousBreakRaw < 30 && totalBreakMinutesRaw < 30) { 
                     const warningEl = document.createElement('p');
-                    warningEl.classList.add('text-red-500', 'dark:text-red-400', 'text-sm', 'p-2', 'bg-red-100', 'dark:bg-red-800', 'rounded-md', 'border', 'border-red-300', 'dark:border-red-600');
-                    warningEl.textContent = '⚠️ Mindestens eine ununterbrochene Pause von 30min ist erforderlich.';
+                    warningEl.className = 'text-red-500 dark:text-red-400 text-sm p-2 bg-red-100 dark:bg-red-800 rounded-md border border-red-300 dark:border-red-600';
+                    warningEl.textContent = '⚠️ Mindestens eine ununterbrochene Pause von 30min ist erforderlich (wenn Gesamtpause < 30 Min).';
                     warningsContainerMoved.appendChild(warningEl);
                     warningsFound = true;
                     breakWarningActive = true;
+                } else if (totalWorkedMinutesActual > (6 * 60) && maxContinuousBreakRaw < 30 && totalBreakMinutesRaw >=30) {
+                    const warningEl = document.createElement('p');
+                    warningEl.className = 'text-red-500 dark:text-red-400 text-sm p-2 bg-red-100 dark:bg-red-800 rounded-md border border-red-300 dark:border-red-600';
+                    warningEl.textContent = '⚠️ Bei >7h Arbeit sollte eine Hauptpause von mind. 30min ununterbrochen sein (Gesamtpause ist OK).';
+                    warningsContainerMoved.appendChild(warningEl);
+                    warningsFound = true;
                 }
 
-                if (totalWorkedMinutes >= (9 * 60) && totalBreakMinutes < 60) { 
+                if (totalWorkedMinutesActual >= (9 * 60) && totalBreakMinutesRaw < 60) {
                     const warningEl = document.createElement('p');
-                    warningEl.classList.add('text-red-500', 'dark:text-red-400', 'text-sm', 'p-2', 'bg-red-100', 'dark:bg-red-800', 'rounded-md', 'border', 'border-red-300', 'dark:border-red-600');
+                    warningEl.className = 'text-red-500 dark:text-red-400 text-sm p-2 bg-red-100 dark:bg-red-800 rounded-md border border-red-300 dark:border-red-600';
                     warningEl.textContent = '⚠️ Mindestpause (total 60min) nicht erreicht bei ≥9h Arbeit.';
                     warningsContainerMoved.appendChild(warningEl);
                     warningsFound = true;
                     breakWarningActive = true;
                 }
 
-                // Dynamische Farbe für Gesamte Pausenzeit
-                totalBreakTimeDisplayMoved.classList.remove('text-red-500', 'dark:text-red-400', 'text-blue-500', 'dark:text-blue-400');
+                totalBreakTimeDisplayMoved.classList.remove('text-red-500', 'dark:text-red-400', 'text-blue-500', 'dark:text-blue-400', 'text-green-500', 'dark:text-green-400');
                 if (breakWarningActive) {
                     totalBreakTimeDisplayMoved.classList.add('text-red-500', 'dark:text-red-400');
-                } else {
+                } else if (totalWorkedMinutesActual > 0 && totalBreakMinutesRaw > 0) { 
+                     totalBreakTimeDisplayMoved.classList.add('text-green-500', 'dark:text-green-400');
+                }
+                else { 
                     totalBreakTimeDisplayMoved.classList.add('text-blue-500', 'dark:text-blue-400');
                 }
 
-
-                if (!warningsFound && totalWorkedMinutes === 0) { 
+                if (!warningsFound && totalWorkedMinutesActual === 0) { 
                     warningsContainerMoved.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400 p-2">Noch keine Zeiten erfasst.</p>';
                 }
 
@@ -305,7 +331,7 @@
                     console.error("Error saving to localStorage:", e);
                 }
             }
-            
+
             function loadEntries() {
                 const savedEntriesJSON = localStorage.getItem(LOCAL_STORAGE_KEY);
                 let loadedFromStorage = false;
@@ -313,16 +339,19 @@
                 if (savedEntriesJSON) {
                     try {
                         const parsedEntries = JSON.parse(savedEntriesJSON);
-                        if (Array.isArray(parsedEntries)) {
+                        if (Array.isArray(parsedEntries) && parsedEntries.length > 0) { 
                             parsedEntries.forEach(entry => {
                                 if (typeof entry.start !== 'undefined' && typeof entry.end !== 'undefined') {
                                     createTimeEntryRow(entry.start, entry.end)
                                 }
                             });
                             loadedFromStorage = true;
+                        } else if (Array.isArray(parsedEntries) && parsedEntries.length === 0) {
+                            loadedFromStorage = true; 
                         }
                     } catch (e) {
                         console.error("Error parsing saved entries from localStorage:", e);
+                        localStorage.removeItem(LOCAL_STORAGE_KEY); 
                     }
                 }
 
@@ -335,8 +364,8 @@
                 createTimeEntryRow();
                 updateCalculations(); 
             });
-            
-            loadEntries(); 
+
+            loadEntries();
             updateCalculations(); 
         });
     </script>
