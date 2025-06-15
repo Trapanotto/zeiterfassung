@@ -6,6 +6,7 @@
     <title>Zeiterfassung</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
         }
@@ -56,7 +57,7 @@
                 </div>
             </div>
             <!-- Stamped Break Display Added -->
-            <p class="mt-3 text-sm sm:text-base">Gestempelte Pause (max 15 Min.): <span id="stampedBreakDisplay" class="font-bold text-gray-600 dark:text-gray-400">Nicht in Anspruch genommen</span></p>
+            <p class="mt-3 text-sm sm:text-base">Bezahlte Pause (max 15 Min.): <span id="stampedBreakDisplay" class="font-bold text-gray-600 dark:text-gray-400">Nicht in Anspruch genommen</span></p>
             <p class="mt-1 text-sm sm:text-base">Gesamte Pausenzeit: <span id="totalBreakTimeDisplayMoved" class="font-bold">0h 0min</span></p>
             <p id="overtimeDisplayWrapperMoved" class="mt-1 text-sm sm:text-base hidden">Überzeit: <span id="overtimeDisplayMoved" class="font-bold text-blue-500 dark:text-blue-400">0h 0min</span></p>
             <div id="warningsContainerMoved" class="mt-2 space-y-2">
@@ -76,15 +77,15 @@
             const overtimeWorkFill = document.getElementById('overtimeWorkFill');
             const targetLine = document.getElementById('targetLine');
             const warningsContainerMoved = document.getElementById('warningsContainerMoved');
-            const stampedBreakDisplay = document.getElementById('stampedBreakDisplay'); // New element
+            const stampedBreakDisplay = document.getElementById('stampedBreakDisplay');
 
             const TARGET_WORK_MINUTES = 8.4 * 60;
             const MAX_PROGRESS_BAR_MINUTES = 12 * 60; // Max value for progress bar visualization
-            const LOCAL_STORAGE_KEY = 'timeTrackerEntries_v3_stamped_capped'; // Changed key for new logic
+            const LOCAL_STORAGE_KEY = 'timeTrackerEntries_v4_multi_break'; // Changed key for new logic
             const defaultInitialEntries = [
                 { start: "08:00", end: "09:00" },
-                { start: "09:20", end: "12:00" }, // This 20 min break will contribute 15min to stamped break
-                { start: "12:45", end: "17:30" }
+                { start: "09:10", end: "12:00" }, // 10 min break
+                { start: "12:45", end: "17:30" }  // 45 min break -> 2 breaks total, so paid break is active
             ];
 
             function createTimeEntryRow(startVal = '', endVal = '') {
@@ -131,7 +132,7 @@
             function formatDuration(totalMinutes) {
                 if (totalMinutes < 0) totalMinutes = 0;
                 const hours = Math.floor(totalMinutes / 60);
-                const minutes = totalMinutes % 60;
+                const minutes = Math.round(totalMinutes % 60); // Round minutes to avoid floating point issues
                 return `${hours}h ${minutes}min`;
             }
 
@@ -187,12 +188,19 @@
                     }
                 }
 
-                // --- Stamped Break Logic (MODIFIED) ---
+                // --- Stamped Break Logic (bezahlte Pause nur bei mind. 2 Pausen) ---
                 let recognizedStampedBreakMinutes = 0;
-                for (const bDuration of individualBreaks) { // Iterate through breaks in chronological order
-                    if (bDuration > 0) { // If it's an actual break
-                        recognizedStampedBreakMinutes = Math.min(bDuration, 15); // Credit up to 15 minutes from this break
-                        break; // Apply to the first break encountered and then stop
+                // Zähle, wie viele tatsächliche Pausen (> 0 Minuten) gemacht wurden.
+                const actualBreakCount = individualBreaks.filter(b => b > 0).length;
+
+                // Eine bezahlte Pause wird nur gutgeschrieben, wenn mindestens zwei separate Pausen erfasst wurden.
+                if (actualBreakCount >= 2) {
+                    // Wenn die Bedingung erfüllt ist, rechne bis zu 15 Minuten der ersten erfassten Pause an.
+                    for (const bDuration of individualBreaks) {
+                        if (bDuration > 0) { // Finde die erste tatsächliche Pause
+                            recognizedStampedBreakMinutes = Math.min(bDuration, 15); // Rechne bis zu 15min an
+                            break; // Stoppe nach der Anrechnung der ersten Pause
+                        }
                     }
                 }
                 // --- End Stamped Break Logic ---
@@ -279,33 +287,19 @@
                     warningsFound = true;
                 }
 
-                if (totalWorkedMinutesActual > 0 && totalBreakMinutesRaw < 30 ) {
+                if (totalWorkedMinutesActual > (6 * 60) && totalBreakMinutesRaw < 30 ) {
                     const warningEl = document.createElement('p');
                     warningEl.className = 'text-red-500 dark:text-red-400 text-sm p-2 bg-red-100 dark:bg-red-800 rounded-md border border-red-300 dark:border-red-600';
-                    warningEl.textContent = '⚠️ Mindestpause (total 30min) nicht erreicht.';
+                    warningEl.textContent = '⚠️ Mindestpause (total 30min bei >6h Arbeit) nicht erreicht.';
                     warningsContainerMoved.appendChild(warningEl);
                     warningsFound = true;
                     breakWarningActive = true;
-                }
-                if (totalWorkedMinutesActual > 0 && maxContinuousBreakRaw < 30 && totalBreakMinutesRaw < 30) { 
-                    const warningEl = document.createElement('p');
-                    warningEl.className = 'text-red-500 dark:text-red-400 text-sm p-2 bg-red-100 dark:bg-red-800 rounded-md border border-red-300 dark:border-red-600';
-                    warningEl.textContent = '⚠️ Mindestens eine ununterbrochene Pause von 30min ist erforderlich (wenn Gesamtpause < 30 Min).';
-                    warningsContainerMoved.appendChild(warningEl);
-                    warningsFound = true;
-                    breakWarningActive = true;
-                } else if (totalWorkedMinutesActual > (6 * 60) && maxContinuousBreakRaw < 30 && totalBreakMinutesRaw >=30) {
-                    const warningEl = document.createElement('p');
-                    warningEl.className = 'text-red-500 dark:text-red-400 text-sm p-2 bg-red-100 dark:bg-red-800 rounded-md border border-red-300 dark:border-red-600';
-                    warningEl.textContent = '⚠️ Bei >7h Arbeit sollte eine Hauptpause von mind. 30min ununterbrochen sein (Gesamtpause ist OK).';
-                    warningsContainerMoved.appendChild(warningEl);
-                    warningsFound = true;
                 }
 
                 if (totalWorkedMinutesActual >= (9 * 60) && totalBreakMinutesRaw < 60) {
                     const warningEl = document.createElement('p');
                     warningEl.className = 'text-red-500 dark:text-red-400 text-sm p-2 bg-red-100 dark:bg-red-800 rounded-md border border-red-300 dark:border-red-600';
-                    warningEl.textContent = '⚠️ Mindestpause (total 60min) nicht erreicht bei ≥9h Arbeit.';
+                    warningEl.textContent = '⚠️ Mindestpause (total 60min bei ≥9h Arbeit) nicht erreicht.';
                     warningsContainerMoved.appendChild(warningEl);
                     warningsFound = true;
                     breakWarningActive = true;
@@ -315,7 +309,7 @@
                 if (breakWarningActive) {
                     totalBreakTimeDisplayMoved.classList.add('text-red-500', 'dark:text-red-400');
                 } else if (totalWorkedMinutesActual > 0 && totalBreakMinutesRaw > 0) { 
-                     totalBreakTimeDisplayMoved.classList.add('text-green-500', 'dark:text-green-400');
+                   totalBreakTimeDisplayMoved.classList.add('text-green-500', 'dark:text-green-400');
                 }
                 else { 
                     totalBreakTimeDisplayMoved.classList.add('text-blue-500', 'dark:text-blue-400');
