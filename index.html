@@ -137,7 +137,7 @@
             }
 
             function updateCalculations() {
-                let totalWorkedMinutesActual = 0; 
+                let totalWorkedMinutesActual = 0;
                 const timeEntriesForCalc = [];
                 const currentEntriesToSave = [];
 
@@ -156,7 +156,7 @@
                     let entryDuration = 0;
                     if (startMinutes !== null && endMinutes !== null && endMinutes > startMinutes) {
                         entryDuration = endMinutes - startMinutes;
-                        timeEntriesForCalc.push({ start: startMinutes, end: endMinutes, id: row.id }); 
+                        timeEntriesForCalc.push({ start: startMinutes, end: endMinutes, id: row.id });
                     }
 
                     durationDisplay.textContent = formatDuration(entryDuration);
@@ -188,18 +188,24 @@
                     }
                 }
 
-                // --- Stamped Break Logic (bezahlte Pause nur bei mind. 2 Pausen) ---
+                // --- Stamped Break Logic (bezahlte Pause kann nicht von der Mittagspause abgezogen werden) ---
                 let recognizedStampedBreakMinutes = 0;
-                // Zähle, wie viele tatsächliche Pausen (> 0 Minuten) gemacht wurden.
                 const actualBreakCount = individualBreaks.filter(b => b > 0).length;
 
                 // Eine bezahlte Pause wird nur gutgeschrieben, wenn mindestens zwei separate Pausen erfasst wurden.
                 if (actualBreakCount >= 2) {
-                    // Wenn die Bedingung erfüllt ist, rechne bis zu 15 Minuten der ersten erfassten Pause an.
-                    for (const bDuration of individualBreaks) {
-                        if (bDuration > 0) { // Finde die erste tatsächliche Pause
+                    // Finde die längste Pause (angenommen als Mittagspause).
+                    const longestBreak = Math.max(...individualBreaks);
+                    // Finde den Index der längsten Pause, um sie einmalig auszuschliessen.
+                    const longestBreakIndex = individualBreaks.indexOf(longestBreak);
+                    // Erstelle eine Liste der "anderen" Pausen.
+                    const otherBreaks = individualBreaks.filter((_, index) => index !== longestBreakIndex);
+
+                    // Wenn die Bedingung erfüllt ist, rechne bis zu 15 Minuten der ersten "anderen" Pause an.
+                    for (const bDuration of otherBreaks) {
+                        if (bDuration > 0) { // Finde die erste tatsächliche "andere" Pause
                             recognizedStampedBreakMinutes = Math.min(bDuration, 15); // Rechne bis zu 15min an
-                            break; // Stoppe nach der Anrechnung der ersten Pause
+                            break; // Stoppe nach der Anrechnung der ersten geeigneten Pause
                         }
                     }
                 }
@@ -214,7 +220,6 @@
                     stampedBreakDisplay.textContent = "Nicht in Anspruch genommen";
                     stampedBreakDisplay.className = 'font-bold text-gray-600 dark:text-gray-400';
                 }
-                
                 totalBreakTimeDisplayMoved.textContent = formatDuration(totalBreakMinutesRaw);
 
                 const normalMinutes = Math.min(effectiveWorkedMinutes, TARGET_WORK_MINUTES);
@@ -229,18 +234,18 @@
                 targetLine.style.left = `${(TARGET_WORK_MINUTES / MAX_PROGRESS_BAR_MINUTES) * 100}%`;
 
                 normalWorkFill.classList.remove('bg-green-500', 'bg-yellow-500', 'text-white', 'text-gray-800', 'rounded-l-full', 'rounded-r-full');
-                overtimeWorkFill.classList.remove('rounded-l-full', 'rounded-r-full'); 
+                overtimeWorkFill.classList.remove('rounded-l-full', 'rounded-r-full');
                 normalWorkFill.classList.add('text-white'); 
 
                 if (effectiveWorkedMinutes > 0) {
-                    normalWorkFill.textContent = formatDuration(effectiveWorkedMinutes); 
+                    normalWorkFill.textContent = formatDuration(effectiveWorkedMinutes);
                     normalWorkFill.classList.add('rounded-l-full');
 
                     if (overtimeMinutes > 0) {
                         normalWorkFill.classList.add('bg-green-500');
                         overtimeWorkFill.classList.remove('hidden');
-                        if (normalPercent + overtimePercent >= 100) { 
-                           overtimeWorkFill.classList.add('rounded-r-full');
+                        if (normalPercent + overtimePercent >= 100) {
+                            overtimeWorkFill.classList.add('rounded-r-full');
                         }
                         overtimeDisplayWrapperMoved.classList.remove('hidden');
                         overtimeDisplayMoved.textContent = formatDuration(overtimeMinutes);
@@ -250,16 +255,16 @@
                         if (effectiveWorkedMinutes < TARGET_WORK_MINUTES) {
                             normalWorkFill.classList.add('bg-yellow-500', 'text-gray-800');
                             normalWorkFill.classList.remove('text-white');
-                        } else { 
+                        } else {
                             normalWorkFill.classList.add('bg-green-500');
                         }
                         if (normalPercent >= 100) {
                            normalWorkFill.classList.add('rounded-r-full');
                         }
                     }
-                } else { 
+                } else {
                     normalWorkFill.textContent = '';
-                    normalWorkFill.classList.add('bg-green-500'); 
+                    normalWorkFill.classList.add('bg-green-500');
                     normalWorkFill.classList.remove('rounded-l-full', 'rounded-r-full');
                     overtimeWorkFill.classList.add('hidden');
                     overtimeDisplayWrapperMoved.classList.add('hidden');
@@ -308,14 +313,14 @@
                 totalBreakTimeDisplayMoved.classList.remove('text-red-500', 'dark:text-red-400', 'text-blue-500', 'dark:text-blue-400', 'text-green-500', 'dark:text-green-400');
                 if (breakWarningActive) {
                     totalBreakTimeDisplayMoved.classList.add('text-red-500', 'dark:text-red-400');
-                } else if (totalWorkedMinutesActual > 0 && totalBreakMinutesRaw > 0) { 
-                   totalBreakTimeDisplayMoved.classList.add('text-green-500', 'dark:text-green-400');
+                } else if (totalWorkedMinutesActual > 0 && totalBreakMinutesRaw > 0) {
+                    totalBreakTimeDisplayMoved.classList.add('text-green-500', 'dark:text-green-400');
                 }
-                else { 
+                else {
                     totalBreakTimeDisplayMoved.classList.add('text-blue-500', 'dark:text-blue-400');
                 }
 
-                if (!warningsFound && totalWorkedMinutesActual === 0) { 
+                if (!warningsFound && totalWorkedMinutesActual === 0) {
                     warningsContainerMoved.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400 p-2">Noch keine Zeiten erfasst.</p>';
                 }
 
@@ -333,7 +338,7 @@
                 if (savedEntriesJSON) {
                     try {
                         const parsedEntries = JSON.parse(savedEntriesJSON);
-                        if (Array.isArray(parsedEntries) && parsedEntries.length > 0) { 
+                        if (Array.isArray(parsedEntries) && parsedEntries.length > 0) {
                             parsedEntries.forEach(entry => {
                                 if (typeof entry.start !== 'undefined' && typeof entry.end !== 'undefined') {
                                     createTimeEntryRow(entry.start, entry.end)
@@ -341,11 +346,11 @@
                             });
                             loadedFromStorage = true;
                         } else if (Array.isArray(parsedEntries) && parsedEntries.length === 0) {
-                            loadedFromStorage = true; 
+                            loadedFromStorage = true;
                         }
                     } catch (e) {
                         console.error("Error parsing saved entries from localStorage:", e);
-                        localStorage.removeItem(LOCAL_STORAGE_KEY); 
+                        localStorage.removeItem(LOCAL_STORAGE_KEY);
                     }
                 }
 
@@ -356,11 +361,11 @@
 
             addTimeEntryRowButton.addEventListener('click', () => {
                 createTimeEntryRow();
-                updateCalculations(); 
+                updateCalculations();
             });
 
             loadEntries();
-            updateCalculations(); 
+            updateCalculations();
         });
     </script>
 </body>
