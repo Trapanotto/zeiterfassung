@@ -36,8 +36,7 @@
         </header>
 
         <div id="timeEntriesContainer" class="space-y-3 mb-4">
-            <!-- Time entry rows will be injected here -->
-        </div>
+            </div>
 
         <button id="addTimeEntryRow" class="w-full mb-6 bg-sky-500 hover:bg-sky-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-opacity-75">
             + Zeitspanne hinzufügen
@@ -47,22 +46,18 @@
             <h3 class="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-200">Arbeitszeitübersicht</h3>
             <div class="relative w-full bg-gray-300 dark:bg-gray-600 rounded-full h-6 overflow-hidden">
                 <div id="normalWorkFill" class="h-6 text-sm font-medium transition-all duration-300 ease-out absolute left-0 top-0 flex items-center justify-center" style="width: 0%;">
-                    <!-- Text updated by JS -->
-                </div>
+                    </div>
                 <div id="overtimeWorkFill" class="bg-blue-500 h-6 text-sm font-medium text-white transition-all duration-300 ease-out absolute left-0 top-0 hidden flex items-center justify-center" style="width: 0%;">
-                    <!-- Text updated by JS (now empty) -->
-                </div>
+                    </div>
                 <div id="targetLine" class="absolute top-0 bottom-0 border-l-2 border-red-500 dark:border-red-400 z-10">
                     <span class="absolute -top-5 text-xs text-red-500 dark:text-red-400 transform -translate-x-1/2">8.4h</span>
                 </div>
             </div>
-            <!-- Stamped Break Display Added -->
             <p class="mt-3 text-sm sm:text-base">Bezahlte Pause (max 15 Min.): <span id="stampedBreakDisplay" class="font-bold text-gray-600 dark:text-gray-400">Nicht in Anspruch genommen</span></p>
             <p class="mt-1 text-sm sm:text-base">Gesamte Pausenzeit: <span id="totalBreakTimeDisplayMoved" class="font-bold">0h 0min</span></p>
             <p id="overtimeDisplayWrapperMoved" class="mt-1 text-sm sm:text-base hidden">Überzeit: <span id="overtimeDisplayMoved" class="font-bold text-blue-500 dark:text-blue-400">0h 0min</span></p>
             <div id="warningsContainerMoved" class="mt-2 space-y-2">
-                <!-- Warnings will be injected here -->
-            </div>
+                </div>
         </div>
     </div>
 
@@ -81,11 +76,12 @@
 
             const TARGET_WORK_MINUTES = 8.4 * 60;
             const MAX_PROGRESS_BAR_MINUTES = 12 * 60; // Max value for progress bar visualization
-            const LOCAL_STORAGE_KEY = 'timeTrackerEntries_v4_multi_break'; // Changed key for new logic
+            const LOCAL_STORAGE_KEY = 'timeTrackerEntries_v5_multi_break_sum'; // Changed key for new logic
             const defaultInitialEntries = [
-                { start: "08:00", end: "09:00" },
-                { start: "09:10", end: "12:00" }, // 10 min break
-                { start: "12:45", end: "17:30" }  // 45 min break -> 2 breaks total, so paid break is active
+                { start: "08:00", end: "10:00" },
+                { start: "10:10", end: "12:00" }, // 10 min break
+                { start: "12:45", end: "15:00" }, // 45 min break
+                { start: "15:10", end: "17:30" }  // 10 min break -> 3 breaks total
             ];
 
             function createTimeEntryRow(startVal = '', endVal = '') {
@@ -174,7 +170,6 @@
                 timeEntriesForCalc.sort((a, b) => a.start - b.start);
 
                 let totalBreakMinutesRaw = 0;
-                let maxContinuousBreakRaw = 0;
                 const individualBreaks = []; 
 
                 for (let i = 0; i < timeEntriesForCalc.length - 1; i++) {
@@ -182,9 +177,6 @@
                         const breakDuration = timeEntriesForCalc[i+1].start - timeEntriesForCalc[i].end;
                         individualBreaks.push(breakDuration);
                         totalBreakMinutesRaw += breakDuration;
-                        if (breakDuration > maxContinuousBreakRaw) {
-                            maxContinuousBreakRaw = breakDuration;
-                        }
                     }
                 }
 
@@ -201,13 +193,11 @@
                     // Erstelle eine Liste der "anderen" Pausen.
                     const otherBreaks = individualBreaks.filter((_, index) => index !== longestBreakIndex);
 
-                    // Wenn die Bedingung erfüllt ist, rechne bis zu 15 Minuten der ersten "anderen" Pause an.
-                    for (const bDuration of otherBreaks) {
-                        if (bDuration > 0) { // Finde die erste tatsächliche "andere" Pause
-                            recognizedStampedBreakMinutes = Math.min(bDuration, 15); // Rechne bis zu 15min an
-                            break; // Stoppe nach der Anrechnung der ersten geeigneten Pause
-                        }
-                    }
+                    // Summiere alle "anderen" Pausen (die nicht die längste Mittagspause sind).
+                    const sumOfOtherBreaks = otherBreaks.reduce((sum, current) => sum + current, 0);
+
+                    // Rechne von dieser Summe bis zu 15 Minuten als bezahlte Pause an.
+                    recognizedStampedBreakMinutes = Math.min(sumOfOtherBreaks, 15);
                 }
                 // --- End Stamped Break Logic ---
 
@@ -346,7 +336,7 @@
                             });
                             loadedFromStorage = true;
                         } else if (Array.isArray(parsedEntries) && parsedEntries.length === 0) {
-                            loadedFromStorage = true;
+                            loadedFromStorage = true; // Handle empty array case
                         }
                     } catch (e) {
                         console.error("Error parsing saved entries from localStorage:", e);
@@ -355,7 +345,11 @@
                 }
 
                 if (!loadedFromStorage) {
-                    defaultInitialEntries.forEach(entry => createTimeEntryRow(entry.start, entry.end));
+                    if (defaultInitialEntries.length > 0) {
+                       defaultInitialEntries.forEach(entry => createTimeEntryRow(entry.start, entry.end));
+                    } else {
+                       createTimeEntryRow(); // Start with one empty row if no defaults
+                    }
                 }
             }
 
