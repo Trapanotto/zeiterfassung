@@ -55,7 +55,9 @@
             </div>
             <p class="mt-3 text-sm sm:text-base">Bezahlte Pause (max 15 Min.): <span id="stampedBreakDisplay" class="font-bold text-gray-600 dark:text-gray-400">Nicht in Anspruch genommen</span></p>
             <p class="mt-1 text-sm sm:text-base">Gesamte Pausenzeit: <span id="totalBreakTimeDisplayMoved" class="font-bold">0h 0min</span></p>
+            
             <p id="overtimeDisplayWrapperMoved" class="mt-1 text-sm sm:text-base hidden">Überzeit: <span id="overtimeDisplayMoved" class="font-bold text-blue-500 dark:text-blue-400">0h 0min</span></p>
+            <p id="undertimeDisplayWrapper" class="mt-1 text-sm sm:text-base hidden">Minusstunden: <span id="undertimeDisplay" class="font-bold text-yellow-500 dark:text-yellow-400">0h 0min</span></p>
             <div id="warningsContainerMoved" class="mt-2 space-y-2">
                 </div>
         </div>
@@ -68,6 +70,12 @@
             const totalBreakTimeDisplayMoved = document.getElementById('totalBreakTimeDisplayMoved');
             const overtimeDisplayWrapperMoved = document.getElementById('overtimeDisplayWrapperMoved');
             const overtimeDisplayMoved = document.getElementById('overtimeDisplayMoved');
+
+            // ===== START ÄNDERUNG =====
+            const undertimeDisplayWrapper = document.getElementById('undertimeDisplayWrapper');
+            const undertimeDisplay = document.getElementById('undertimeDisplay');
+            // ===== ENDE ÄNDERUNG =====
+
             const normalWorkFill = document.getElementById('normalWorkFill');
             const overtimeWorkFill = document.getElementById('overtimeWorkFill');
             const targetLine = document.getElementById('targetLine');
@@ -76,12 +84,12 @@
 
             const TARGET_WORK_MINUTES = 8.4 * 60;
             const MAX_PROGRESS_BAR_MINUTES = 12 * 60; // Max value for progress bar visualization
-            const LOCAL_STORAGE_KEY = 'timeTrackerEntries_v5_multi_break_sum'; // Changed key for new logic
+            const LOCAL_STORAGE_KEY = 'timeTrackerEntries_v5_multi_break_sum';
             const defaultInitialEntries = [
                 { start: "08:00", end: "10:00" },
-                { start: "10:10", end: "12:00" }, // 10 min break
-                { start: "12:45", end: "15:00" }, // 45 min break
-                { start: "15:10", end: "17:30" }  // 10 min break -> 3 breaks total
+                { start: "10:10", end: "12:00" }, 
+                { start: "12:45", end: "15:00" }, 
+                { start: "15:10", end: "17:30" }
             ];
 
             function createTimeEntryRow(startVal = '', endVal = '') {
@@ -128,7 +136,7 @@
             function formatDuration(totalMinutes) {
                 if (totalMinutes < 0) totalMinutes = 0;
                 const hours = Math.floor(totalMinutes / 60);
-                const minutes = Math.round(totalMinutes % 60); // Round minutes to avoid floating point issues
+                const minutes = Math.round(totalMinutes % 60);
                 return `${hours}h ${minutes}min`;
             }
 
@@ -171,7 +179,6 @@
 
                 let totalBreakMinutesRaw = 0;
                 const individualBreaks = []; 
-
                 for (let i = 0; i < timeEntriesForCalc.length - 1; i++) {
                     if (timeEntriesForCalc[i+1].start > timeEntriesForCalc[i].end) {
                         const breakDuration = timeEntriesForCalc[i+1].start - timeEntriesForCalc[i].end;
@@ -179,28 +186,18 @@
                         totalBreakMinutesRaw += breakDuration;
                     }
                 }
-
-                // --- Stamped Break Logic (bezahlte Pause kann nicht von der Mittagspause abgezogen werden) ---
+                
                 let recognizedStampedBreakMinutes = 0;
                 const actualBreakCount = individualBreaks.filter(b => b > 0).length;
 
-                // Eine bezahlte Pause wird nur gutgeschrieben, wenn mindestens zwei separate Pausen erfasst wurden.
                 if (actualBreakCount >= 2) {
-                    // Finde die längste Pause (angenommen als Mittagspause).
                     const longestBreak = Math.max(...individualBreaks);
-                    // Finde den Index der längsten Pause, um sie einmalig auszuschliessen.
                     const longestBreakIndex = individualBreaks.indexOf(longestBreak);
-                    // Erstelle eine Liste der "anderen" Pausen.
                     const otherBreaks = individualBreaks.filter((_, index) => index !== longestBreakIndex);
-
-                    // Summiere alle "anderen" Pausen (die nicht die längste Mittagspause sind).
                     const sumOfOtherBreaks = otherBreaks.reduce((sum, current) => sum + current, 0);
-
-                    // Rechne von dieser Summe bis zu 15 Minuten als bezahlte Pause an.
                     recognizedStampedBreakMinutes = Math.min(sumOfOtherBreaks, 15);
                 }
-                // --- End Stamped Break Logic ---
-
+                
                 const effectiveWorkedMinutes = totalWorkedMinutesActual + recognizedStampedBreakMinutes;
 
                 if (recognizedStampedBreakMinutes > 0) {
@@ -214,7 +211,24 @@
 
                 const normalMinutes = Math.min(effectiveWorkedMinutes, TARGET_WORK_MINUTES);
                 const overtimeMinutes = Math.max(0, effectiveWorkedMinutes - TARGET_WORK_MINUTES);
+                
+                // ===== START ÄNDERUNG =====
+                const undertimeMinutes = Math.max(0, TARGET_WORK_MINUTES - effectiveWorkedMinutes);
 
+                if (overtimeMinutes > 0) {
+                    overtimeDisplayWrapperMoved.classList.remove('hidden');
+                    overtimeDisplayMoved.textContent = formatDuration(overtimeMinutes);
+                    undertimeDisplayWrapper.classList.add('hidden');
+                } else if (undertimeMinutes > 0 && effectiveWorkedMinutes > 0 && undertimeMinutes < TARGET_WORK_MINUTES) {
+                    undertimeDisplayWrapper.classList.remove('hidden');
+                    undertimeDisplay.textContent = formatDuration(undertimeMinutes);
+                    overtimeDisplayWrapperMoved.classList.add('hidden');
+                } else {
+                    overtimeDisplayWrapperMoved.classList.add('hidden');
+                    undertimeDisplayWrapper.classList.add('hidden');
+                }
+                // ===== ENDE ÄNDERUNG =====
+                
                 const normalPercent = (normalMinutes / MAX_PROGRESS_BAR_MINUTES) * 100;
                 const overtimePercent = (overtimeMinutes / MAX_PROGRESS_BAR_MINUTES) * 100;
 
@@ -226,7 +240,7 @@
                 normalWorkFill.classList.remove('bg-green-500', 'bg-yellow-500', 'text-white', 'text-gray-800', 'rounded-l-full', 'rounded-r-full');
                 overtimeWorkFill.classList.remove('rounded-l-full', 'rounded-r-full');
                 normalWorkFill.classList.add('text-white'); 
-
+                
                 if (effectiveWorkedMinutes > 0) {
                     normalWorkFill.textContent = formatDuration(effectiveWorkedMinutes);
                     normalWorkFill.classList.add('rounded-l-full');
@@ -237,11 +251,9 @@
                         if (normalPercent + overtimePercent >= 100) {
                             overtimeWorkFill.classList.add('rounded-r-full');
                         }
-                        overtimeDisplayWrapperMoved.classList.remove('hidden');
                         overtimeDisplayMoved.textContent = formatDuration(overtimeMinutes);
                     } else {
                         overtimeWorkFill.classList.add('hidden');
-                        overtimeDisplayWrapperMoved.classList.add('hidden');
                         if (effectiveWorkedMinutes < TARGET_WORK_MINUTES) {
                             normalWorkFill.classList.add('bg-yellow-500', 'text-gray-800');
                             normalWorkFill.classList.remove('text-white');
@@ -257,7 +269,6 @@
                     normalWorkFill.classList.add('bg-green-500');
                     normalWorkFill.classList.remove('rounded-l-full', 'rounded-r-full');
                     overtimeWorkFill.classList.add('hidden');
-                    overtimeDisplayWrapperMoved.classList.add('hidden');
                 }
                 overtimeWorkFill.textContent = ''; 
 
@@ -309,7 +320,7 @@
                 else {
                     totalBreakTimeDisplayMoved.classList.add('text-blue-500', 'dark:text-blue-400');
                 }
-
+                
                 if (!warningsFound && totalWorkedMinutesActual === 0) {
                     warningsContainerMoved.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400 p-2">Noch keine Zeiten erfasst.</p>';
                 }
@@ -336,19 +347,19 @@
                             });
                             loadedFromStorage = true;
                         } else if (Array.isArray(parsedEntries) && parsedEntries.length === 0) {
-                            loadedFromStorage = true; // Handle empty array case
+                            loadedFromStorage = true;
                         }
                     } catch (e) {
                         console.error("Error parsing saved entries from localStorage:", e);
                         localStorage.removeItem(LOCAL_STORAGE_KEY);
                     }
                 }
-
+                
                 if (!loadedFromStorage) {
                     if (defaultInitialEntries.length > 0) {
                        defaultInitialEntries.forEach(entry => createTimeEntryRow(entry.start, entry.end));
                     } else {
-                       createTimeEntryRow(); // Start with one empty row if no defaults
+                       createTimeEntryRow();
                     }
                 }
             }
